@@ -1,0 +1,189 @@
+//
+//  surf_to_pic.cpp
+//  feature_extraction
+//
+//  Created by xiaoyu on 2019/9/5.
+//  Copyright © 2019 xiaoyu. All rights reserved.
+//
+#include <iostream>
+#include <fstream>
+#include "opencv2/core.hpp"
+#ifdef HAVE_OPENCV_XFEATURES2D
+#include "opencv2/highgui.hpp"
+#include "opencv2/features2d.hpp"
+#include "opencv2/xfeatures2d.hpp"
+#include <opencv2/video.hpp>
+#include <opencv2/videoio.hpp>
+#include <stdio.h>
+#include <vector>
+
+using namespace cv;
+using namespace cv::xfeatures2d;
+using namespace std;
+using std::cout;
+using std::endl;
+
+const char* params =
+"{ help h |                          | Print help message. }"
+"{ input1 | /Users/Tribesman/Desktop/Xcode/20190726--read_video_subtract_background/test2.mov | Path to input video 1. }"
+"{ input2 | /Users/Tribesman/Desktop/Xcode/20190912--simple_surf_to_video/VID_20181225_172152.mp4 | Path to input video 2. }";
+int main( int argc, char* argv[] )
+{
+    CommandLineParser parser(argc, argv, params);
+    //不用IplImage*， 用Mat，IplImage*是之前版本的图像的存储
+    //读取视频文件
+    VideoCapture capture(parser.get<String>("input1"));
+    
+    Mat frameA, frameB, frameC;
+    capture >> frameA;
+    double framewidth;
+    
+    while (true) {
+        //把后面的帧都赋予frameB
+        capture >> frameB;
+        
+        //得到当前一帧的号码
+        stringstream ss;
+        ss << capture.get(CAP_PROP_POS_FRAMES);
+        string frameNumberString = ss.str();
+        
+        //读取照片，并且灰度化，
+        //转化为灰度图像，第一帧转换为frameC，后面的帧都转换为frameB，然后所有后面的帧都和第一帧frameC进行对比。6的意思是rgb_to_gray
+        cvtColor(frameA,frameC,6);
+        cvtColor(frameB,frameB,6);
+        //如果没有读入帧数，则输出错误提示
+        if ( frameC.empty() || frameB.empty() )
+        {
+            cout << "Could not open or find the image!\n" << endl;
+            parser.printMessage();
+            return -1;
+        }
+        //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
+        // 之前设定的是400
+        int minHessian = 400;
+        Ptr<SURF> detector = SURF::create( minHessian );
+        std::vector<KeyPoint> keypoints1, keypoints2;
+        Mat descriptors1, descriptors2;
+        detector->detectAndCompute( frameC, noArray(), keypoints1, descriptors1 );
+        detector->detectAndCompute( frameB, noArray(), keypoints2, descriptors2 );
+        //-- Step 2: Matching descriptor vectors with a FLANN based matcher
+        // Since SURF is a floating-point descriptor NORM_L2 is used
+        Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+        std::vector< std::vector<DMatch> > knn_matches;
+        matcher->knnMatch( descriptors1, descriptors2, knn_matches, 2 );
+        //-- Filter matches using the Lowe's ratio test
+        const float ratio_thresh = 0.7f;
+        std::vector<DMatch> good_matches;
+        for (size_t i = 0; i < knn_matches.size(); i++)
+        {
+            if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance)
+            {
+                good_matches.push_back(knn_matches[i][0]);
+            }
+        }
+        
+        //这个是在原来的视频上面，显示当前帧的号码
+        //先画一个底色的框框
+        rectangle(frameB, cv::Point(10, 2), cv::Point(100,20),
+                  cv::Scalar(0,0,0), -1);
+        //然后在上面显示当前帧的数字
+        putText(frameB, frameNumberString.c_str(), cv::Point(15, 15),
+                FONT_HERSHEY_SIMPLEX, 0.5 , cv::Scalar(255,255,255));
+        
+        //-- Draw matches
+        Mat img_matches;
+        drawMatches( frameC, keypoints1, frameB, keypoints2, good_matches, img_matches, Scalar::all(-1),
+                    Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+        //-- Show detected matches
+//        imshow("Good Matches", img_matches );
+//        waitKey();
+        //想办法把坐标的平均值输出出来
+        
+        //给特征点分配空间
+        int ptCount = (int)knn_matches.size();
+        Mat p1(ptCount, 2, CV_32F);
+        Mat p2(ptCount, 2, CV_32F);
+        
+        // 把Keypoint转换为Mat
+        //现在queryIdx里面有点儿问题，是DMatch里面的内容
+        Point2f pt1,pt2;
+        for (int i = 0; i<ptCount; i++)
+        {
+//            pt = keypoints1[knn_matches[i].queryIdx].pt;
+//            p1.at<float>(i, 0) = pt.x;
+//            p1.at<float>(i, 1) = pt.y;
+//
+//            pt = keypoints2[knn_matches[i].trainIdx].pt;
+//            p2.at<float>(i, 0) = pt.x;
+//            p2.at<float>(i, 1) = pt.y;
+
+        //query的点应该是第一幅图里面的特征点，train的点是第二幅图里面的特征点.其实啊，j都是两个点
+//            int featurenum = (int)knn_matches[i].size();
+//            for (int j = 0; j<featurenum; j++)
+//            {
+//                pt1 = keypoints1[knn_matches[i][j].queryIdx].pt;
+//                //p1应该代表了第一幅里面的一大堆点，
+//                p1.at<float>(i, 0) = pt1.x;
+//                p1.at<float>(i, 1) = pt1.y;
+//
+//                pt2 = keypoints2[knn_matches[i][j].trainIdx].pt;
+//                p2.at<float>(i, 0) = pt2.x;
+//                p2.at<float>(i, 1) = pt2.y;
+//            }
+
+            //我感觉knn_matches[i][0]，第二个括号里面，一个是0，一个是1，应该就可以达到目的。
+            //也可以直接写到文件里面，用matlab进行计算。可以可以
+            //queryIdx是第一个图片里面的数据点
+            pt1 = keypoints1[knn_matches[i][0].queryIdx].pt;
+            
+            //只是尝试一些命令
+//            cout << "please enter your name: ";
+            
+            //print一下当前帧的号码
+            cout << frameNumberString;
+            //看看是否能够把pt1给print出来
+            printf("the position of feature point in fig1: %f %f\n", pt1.x, pt1.y);
+            //并没有输出出来，这是怎么回事？
+//            std::ofstream fout("copy.out", ios_base::out);
+            //缺省情况下，是输出模式打开，就是覆盖了源文件
+            ofstream oFile("copy.out");
+
+            //附加模式，是在原文的基础上，再进行输出
+//            ofstream fout("copy.out", ios_base::out);
+//            fout.open("mat.txt",std::ios::app);//在文件末尾追加写入
+            //测试是否打开了该文件
+            if (! oFile){//打开失败
+                cerr << "cannot open copy.out for output\n";
+                exit(-1);
+            }
+            
+            oFile << "1+1= " << (1+1) << endl;
+            oFile << pt1.x << pt1.y << std::endl;//每次写完一个矩阵以后换行
+//            oFile.close();
+            
+            //p1应该代表了第一幅里面的一大堆点，
+            p1.at<float>(i, 0) = pt1.x;
+            p1.at<float>(i, 1) = pt1.y;
+            
+            pt2 = keypoints2[knn_matches[i][1].trainIdx].pt;
+            p2.at<float>(i, 0) = pt2.x;
+            p2.at<float>(i, 1) = pt2.y;
+            
+//            void convertTo( OutputArray m, int rtype, double alpha=1, double beta=0 ) const;
+//            p1.convertTo(datap1, int )
+
+        }
+        
+    }
+    
+#else
+    int main()
+    {
+        std::cout << "This tutorial code needs the xfeatures2d contrib module to be run." << std::endl;
+        return 0;
+    }
+    return 0;
+}
+
+#endif
+}
